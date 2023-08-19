@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+
+############################################################
+# Common CI tasks. These are intended to be reusable across
+# projects, and easily overriden.
+############################################################
+
+clean-py-cache() {
+    print_colorized WARN "Finding and deleting .py[co] files & __pycache__ directories."; echo
+    continue_prompt
+    find . \( -type f -name "*.py[co]" -o -type d -name "__pycache__" \) -delete
+    print_colorized INFO "Found and deleted .py[co] files & __pycache__ directories."; echo
+}
+
+clean-tox() {
+    print_colorized WARN "Deleting .tox directory."; echo
+    continue_prompt
+    rm -rf .tox
+    print_colorized INFO "Deleted .tox directory."; echo
+}
+
+clean-venv() {
+    local VENV="${1:?'Missing required parameter: VENV.'}"
+    print_colorized WARN "Deleting virtualenv ${VENV}."; echo
+    continue_prompt
+    rm -rf "${VENV}"
+    print_colorized INFO "Deleted virtualenv ${VENV}."; echo
+}
+
+clean-dist() {
+    print_colorized WARN "Deleting build and dist data."; echo
+    continue_prompt
+    rm -rf ./*.egg-info dist build
+    print_colorized INFO "Deleted build and dist data."; echo
+}
+
+clean-image() {
+    local IMAGE_NAME="${1:?'Missing required parameter: IMAGE_NAME.'}"
+    print_colorized WARN "Deleting Docker image '${IMAGE_NAME}.'"; echo
+    continue_prompt
+    image=$(docker images -q "${IMAGE_NAME}")
+    if [[ -n "${image}" ]]; then
+        docker rmi "${image}"
+        print_colorized INFO "Deleted Docker image '${IMAGE_NAME}.'"; echo
+    else
+        print_colorized INFO "Did not find Docker image '${IMAGE_NAME}.'"; echo
+    fi
+}
+
+clean() {
+    local VENV="${1:?'Missing required parameter: VENV.'}"
+    local TEST_IMAGE_NAME="${2:?'Missing required parameter: TEST_IMAGE_NAME.'}"
+    local NOPROMPT="${3:-false}"
+
+    if [[ ${NOPROMPT} == true ]]; then
+        clean-all-noprompt "${VENV}" "${TEST_IMAGE_NAME}"
+    else
+        clean-prompt
+        while true; do
+            read -p "Type clean task here: " clean_task
+            case ${clean_task} in
+                all ) clean-all "${VENV}" "${TEST_IMAGE_NAME}"; break;;
+                venv ) clean-venv "${VENV}"; break;;
+                dist ) clean-dist; break;;
+                tox ) clean-tox; break;;
+                cache ) clean-py-cache; break;;
+                image ) clean-image "${TEST_IMAGE_NAME}"; break;;
+                * ) clean-prompt;;
+            esac
+        done
+    fi
+}
+
+clean-all() {
+    local VENV="${1:?'Missing required parameter: VENV.'}"
+    local TEST_IMAGE_NAME="${2:?'Missing required parameter: TEST_IMAGE_NAME.'}"
+    (clean-venv "${VENV}")
+    (clean-dist)
+    (clean-tox)
+    (clean-py-cache)
+    (clean-image "${TEST_IMAGE_NAME}")
+}
+
+clean-prompt() {
+    printf "${WARN}"
+    cat << EOF
+
+    This will prompt you to delete each category (5 prompts).
+    If you prefer to clean all without these prompts, try running `make clean-noprompt`.
+
+    Which of the following clean tasks would you like to run?
+        all
+        cache
+        dist
+        image
+        tox
+        venv
+EOF
+    printf "${RESET}"; echo
+}
+
+clean-all-noprompt() {
+    local VENV="${1:?'Missing required parameter: VENV.'}"
+    local IMAGE_NAME="${2:?'Missing required parameter: IMAGE_NAME.'}"
+    print_colorized WARN "Deleting image, virtualenv, cache, build and testing temp data."; echo
+    set -x
+    rm -rf "${VENV}" ./*.egg-info dist build .tox
+    find . \( -type f -name "*.py[co]" -o -type d -name "__pycache__" \) -delete
+    bash_debug "test image: ${IMAGE_NAME}"
+    image=$(docker images -q "${IMAGE_NAME}")
+    if [[ -n "${image}" ]]; then
+        docker rmi "${image}"
+    fi
+    set +x
+    print_colorized INFO "Finished deleting image, virtualenv, cache, build and testing temp data."; echo
+}
+
+lint() {
+    python -m pip install -q 'tox<4.0'
+
+    print_colorized INFO "Linting code."; echo
+
+    tox -e flake8
+
+    print_colorized INFO "Finished linting code."; echo
+}
+
+test-unit() {
+    # Declare default tox envs, but allow TOX_ENV to override
+    local default_tox_envs="py38"
+    local tox_env="${TOX_ENV:-$default_tox_envs}"
+
+    python -m pip install -q 'tox<4.0'
+
+        # Allow location of tox.ini to be passed in, optionally
+    local TOX_CONFIG="${1:-}"
+        local TOX_ARGS=""
+
+        if [[ -n ${TOX_CONFIG} ]]; then
+                TOX_ARGS="-c ${TOX_CONFIG}"
+        fi
+
+    print_colorized INFO "Running unit tests."; echo
+
+    for e in $(echo "${tox_env}"); do
+        print_colorized INFO "Running unit tests using tox env $e."
+        tox ${TOX_ARGS} tests/unit -e "$e" --result-json .tox/unit-test-report.log
+
+        print_colorized INFO "Finished running unit tests using tox env $e."
+    done
+
+    print_colorized INFO "Finished running unit tests."; echo
+}
+
+test-functional() {
+    # Declare default tox envs, but allow TOX_ENV to override
+    local default_tox_envs="py38-khulnasoft_latest py38-khulnasoft_0.9.4 py38-khulnasoft_0.8.2"
+    local tox_env="${TOX_ENV:-$default_tox_envs}"
+
+    python -m pip install -q 'tox<4.0'
+
+        # Allow location of tox.ini to be passed in, optionally
+    local TOX_CONFIG="${1:-}"
+        local TOX_ARGS=""
+
+        if [[ -n ${TOX_CONFIG} ]]; then
+                TOX_ARGS="-c ${TOX_CONFIG}"
+        fi
+
+    print_colorized INFO "Running functional tests."; echo
+
+    for e in $(echo "${tox_env}"); do
+        print_colorized INFO "Running functional tests using tox env $e."
+        tox ${TOX_ARGS} -e "$e" --result-json .tox/functional-test-report.log
+        print_colorized INFO "Finished running functional tests using tox env $e."
+    done
+
+    print_colorized INFO "Finished running functional tests."; echo
+}
+
+test-cli() {
+  local project=$(basename -s .git `git config --get remote.origin.url`)
+  if [[ "${project}" == "khulnasoft-cli" ]]; then
+    touch CLI
+  fi
+
+  hash faker || python -m pip install -q faker
+  hash khulnasoft-cli || python -m pip install -q khulnasoftcli
+  python -m pip install python-dotenv
+
+  print_colorized INFO "Running CLI tests."; echo
+
+  python khulnasoft-ci/cli_driver.py
+
+  print_colorized INFO "Finished running CLI tests."; echo
+}
+
+test-container() {
+    # Only run this in CI
+    if [[ "${CI:-false}" == true ]]; then
+
+        IMAGE="${1:?'Missing required parameter: IMAGE'}"
+        TAG="${2:?'Missing required parameter: TAG'}"
+        CONFIG_FILE="${3:?'Missing required parameter: CONFIG_FILE'}"
+
+        ARCH=$(uname | tr '[:upper:]' '[:lower:]')
+
+        print_colorized INFO "Installing container-structure-tests."
+        curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-"${ARCH}"-amd64
+        chmod +x container-structure-test-"${ARCH}"-amd64
+
+        print_colorized INFO "Running container-structure-tests for ${IMAGE}:${TAG}."
+        ./container-structure-test-"${ARCH}"-amd64 test --image "${IMAGE}:${TAG}" -c "${CONFIG_FILE}"
+
+        print_colorized INFO "Finished running container-structure-tests."
+    fi
+}
+
+# TODO rework this so that VENV is optional
+install-cluster-deps() {
+    local VENV="${1:?'Missing required parameter: VENV'}"
+
+    print_colorized INFO "Installing dependencies to run local k8s cluster."
+
+    local arch="$(uname | tr '[:upper:]' '[:lower:]')"
+    local kind_version="v0.11.1"
+    local kubectl_version="v1.15.0"
+    local helm_version="v3.1.1"
+
+    if [[ ! -x "${VENV}/bin/kind" ]]; then
+        print_colorized WARN "Installing kind"
+        curl -qsSLo "${VENV}/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${kind_version}/kind-${arch}-amd64"
+        chmod +x "${VENV}/bin/kind"
+    else
+        print_colorized INFO "kind already installed."
+    fi
+
+    if [[ ! -x "${VENV}/bin/helm" ]]; then
+        print_colorized WARN "Installing helm"
+        curl -sSL "https://get.helm.sh/helm-${helm_version}-${arch}-amd64.tar.gz" | tar xzf - -C "${VENV}/bin" --strip-components=1 "${arch}-amd64/helm"
+        chmod +x "${VENV}/bin/helm"
+    else
+        print_colorized INFO "helm already installed."
+    fi
+
+    if [[ ! -x "${VENV}/bin/kubectl" ]]; then
+        print_colorized WARN "Installing kubectl"
+        curl -sSLo "${VENV}/bin/kubectl" "https://storage.googleapis.com/kubernetes-release/release/${kubectl_version}/bin/${arch}/amd64/kubectl"
+        chmod +x "${VENV}/bin/kubectl"
+    else
+        print_colorized INFO "kubectl already installed."
+    fi
+
+    print_colorized INFO "Finished installing dependencies to run local k8s cluster."
+}
+
+cluster-up() {
+    local CLUSTER_NAME="${1:?'Missing required parameter: CLUSTER_NAME'}"
+    local CLUSTER_CONFIG="${2}"
+    local K8S_VERSION="${3:?'Missing required parameter: K8S_VERSION'}"
+
+    local kind_node_image_tag="v${K8S_VERSION}"
+    local script_path="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
+    # if a kind cluster named e2e-testing is running export config, otherwise create a new cluster
+    if ! kind get clusters | grep "${CLUSTER_NAME}"; then
+        kind create cluster --name "${CLUSTER_NAME}" --config "${script_path}"/config/kind-config.yaml --image "kindest/node:${kind_node_image_tag}" --wait 60s
+    else
+        print_colorized INFO "Kind cluster already running."
+    fi
+}
+
+cluster-down() {
+    local CLUSTER_NAME="${1:?'Missing required parameter: CLUSTER_NAME'}"
+
+    kind delete cluster --name "${CLUSTER_NAME}"
+}
+
+compose-up() {
+    local TEST_IMAGE_NAME="${1:?'Missing required parameter: TEST_IMAGE_NAME'}"
+    local COMPOSE_FILE="${2:?'Missing required parameter: COMPOSE_FILE'}"
+
+    hash docker-compose || python -m pip install docker-compose
+
+    export TEST_IMAGE_NAME
+    docker-compose -f ${COMPOSE_FILE} up -d
+}
+
+compose-down() {
+    local TEST_IMAGE_NAME="${1:?'Missing required parameter: TEST_IMAGE_NAME'}"
+    local COMPOSE_FILE="${2:?'Missing required parameter: COMPOSE_FILE'}"
+
+    hash docker-compose || python -m pip install docker-compose
+
+    export TEST_IMAGE_NAME
+    docker-compose -f ${COMPOSE_FILE} down
+}
+
+check-reported-db-version() {
+  hash khulnasoft-cli || python -m pip install -q khulnasoftcli
+  khulnasoft-cli --u admin --p foobar system wait --timeout 300 --interval 10 --feedsready '' --servicesready 'catalog,apiext,policy_engine,simplequeue,analyzer' > /dev/null 2>&1
+  khulnasoft-cli --u admin --p foobar system status | grep "DB Version" | awk '{print $4}'
+}
+
+dump_db_schema() {
+  local NAMESPACE="${1:-default}"
+  local DB="${2:-khulnasoft}"
+
+  hash khulnasoft-cli || python -m pip install -q khulnasoftcli
+
+  khulnasoft-cli --u admin --p foobar system wait --timeout 300 --interval 10 --feedsready '' --servicesready 'catalog,apiext,policy_engine,simplequeue,analyzer'
+
+  local DB_POD="$(kubectl get pods | grep postgresql | awk {'print $1'})"
+
+  kubectl exec --namespace ${NAMESPACE} --stdin --tty  ${DB_POD} -- pg_dump --schema-only ${DB} | grep -v -e \-\- -e '^[[:space:]]*$'
+}
+
+# Note currently specific to enterprise
+db-diff-install() {
+    local CLUSTER_NAME="${1:?'Missing required parameter: CLUSTER_NAME'}"
+    local DOCKER_USER="${2:?'Missing required parameter: DOCKER_USER'}"
+    local DOCKER_PASS="${3:?'Missing required parameter: DOCKER_PASS'}"
+    local VALUES_FILE="${4:?'Missing required parameter: VALUES_FILE'}"
+    local KHULNASOFT_REPO="${5:?'Missing required parameter: KHULNASOFT_REPO'}"
+    local KHULNASOFT_TAG="${6:?'Missing required parameter: KHULNASOFT_TAG'}"
+    local pulltag="${KHULNASOFT_REPO}:${KHULNASOFT_TAG}"
+    local helm_deploy_name="${CLUSTER_NAME}-db-diff"
+
+    kubectl delete secret khulnasoft-enterprise-pullcreds > /dev/null 2>&1 || true
+    kubectl create secret docker-registry khulnasoft-enterprise-pullcreds --docker-server=docker.io --docker-username="${DOCKER_USER}" --docker-password="${DOCKER_PASS}" --docker-email=khulnasoftci@khulnasoft.com
+    kubectl patch serviceaccount default --type=merge --patch '{"imagePullSecrets":[{"name": "khulnasoft-enterprise-pullcreds"}]}'
+
+    kubectl delete secret khulnasoft-enterprise-license > /dev/null 2>&1 || true
+    kubectl create secret generic khulnasoft-enterprise-license --from-file=license.yaml=license.yaml || true
+
+    echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+    docker pull ${pulltag}
+
+    helm repo add khulnasoft https://charts.khulnasoft.com
+    kind load docker-image "${pulltag}" --name "${CLUSTER_NAME}"
+    helm_install_log=$(helm install "${helm_deploy_name}" -f "${VALUES_FILE}" khulnasoft/khulnasoft-engine)
+    kubectl patch service "${helm_deploy_name}-khulnasoft-engine-api" --type=json --patch '[{"op": "replace", "path": "/spec/ports/0/nodePort", "value":30028}]'
+}
+
+# Call install-cluster-deps before you call this so that you have helm, kind, and kubectl
+diff-db-versions() {
+    local CLUSTER_NAME="${1:?'Missing required parameter: CLUSTER_NAME'}"
+    local DOCKER_USER="${2:?'Missing required parameter: DOCKER_USER'}"
+    local DOCKER_PASS="${3:?'Missing required parameter: DOCKER_PASS'}"
+    local VALUES_FILE="${4:?'Missing required parameter: VALUES_FILE'}"
+    local DOCKER_REPO="${5:?'Missing required parameter: DOCKER_REPO'}"
+    local V1="${6:?'Missing required parameter: V1'}"
+    local V2="${7:?'Missing required parameter: V2'}"
+    local CHECK="${8:-yes}"
+    local K8S_VERSION="${9:-1.19.0}"
+
+    cluster-up "${CLUSTER_NAME}" khulnasoft-ci/config/kind-config.yaml "${K8S_VERSION}"
+
+    db-diff-install "${CLUSTER_NAME}" "${DOCKER_USER}" "${DOCKER_PASS}" "${VALUES_FILE}" "${DOCKER_REPO}" "${V1}"
+    dump_db_schema > /tmp/"${V1}".ddl
+    check-reported-db-version > /tmp/"${V1}".dbversion
+
+    echo "Exported DDL and version for ${V1}."
+    helm uninstall "${CLUSTER_NAME}-db-diff"
+    kubectl delete pvc --all
+
+    db-diff-install "${CLUSTER_NAME}" "${DOCKER_USER}" "${DOCKER_PASS}" "${VALUES_FILE}" "${DOCKER_REPO}" "${V2}"
+    dump_db_schema > /tmp/"${V2}".ddl
+    check-reported-db-version > /tmp/"${V2}".dbversion
+
+    echo "Exported DDL and version for ${V2}."
+    cluster-down "${CLUSTER_NAME}"
+
+    # Fail (exit 1) if reported DB versions differ
+    if [ "$CHECK" = "yes" ]; then
+      if ! cmp /tmp/"${V1}".dbversion /tmp/"${V2}".dbversion ; then
+        exit 1
+      fi
+      python -m pip install -q sqlparse
+      # db_canonicalizer.py will fail (exit 1) if DDL files don't match
+      python3 khulnasoft-ci/db_canonicalizer.py /tmp/"${V1}".ddl /tmp/"${V2}".ddl
+    fi
+}
