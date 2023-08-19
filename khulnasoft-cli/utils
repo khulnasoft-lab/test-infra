@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+#############################################################
+### Common utility functions
+#############################################################
+
+export BASH_DEBUG=""
+
+bash_debug() {
+  if [[ -n "$BASH_DEBUG" ]]; then echo "$1"; fi
+}
+
+activate_venv() {
+    local VENV="${1:?'Missing required parameter: VENV'}"
+
+    # activate virtual environment if it is available
+    if [[ -f "${VENV}/bin/activate" ]]; then
+        source "${VENV}/bin/activate"
+        print_colorized INFO "Using virtual environment ${VENV}."
+    else
+        print_colorized INFO "Uirtual environment ${VENV} not found."
+    fi
+}
+
+continue_prompt() {
+    while true; do
+        read -p "Do you want to continue? (y/n) " yn
+        case ${yn} in
+            [Yy]* ) break;;
+            [Nn]* ) exit;;
+            * ) echo "Please answer yes or no. ";;
+        esac
+    done
+}
+
+# Print message using the specified color code (OK, WARN, INFO, ERROR)
+print_colorized() {
+    local color_code=$1
+    local message=$2
+    printf "\n${!color_code}%s${RESET}\n" "${message}"
+}
+
+# Setup shell colors for print statements
+# OK: green
+# INFO: cyan
+# WARN: yellow
+# ERROR: red
+setup_colors() {
+    export OK="\033[0;32m" \
+        INFO="\033[0;36m" \
+        WARN="\033[0;33m" \
+        ERROR="\033[0;31m" \
+        RESET="\033[0m"
+}
+
+setup_colors
