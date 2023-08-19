@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30028
+        hostPort: 8228
+  - role: worker
+networking:
+  apiServerAddress: "127.0.0.1"
+  # Set KIND to listen on a specified port so we can create a ssh tunnel for access in circleci
+  apiServerPort: 32768
