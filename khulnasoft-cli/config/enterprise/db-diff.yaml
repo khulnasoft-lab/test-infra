@@ -1,0 +1,63 @@
+khulnasoftGlobal:
+  defaultAdminPassword: foobar
+  imagePullPolicy: IfNotPresent
+
+khulnasoftEnterpriseGlobal:
+  enabled: true
+  image: docker.io/khulnasoft/enterprise-dev:nightly
+  imagePullPolicy: Always
+
+khulnasoftEnterpriseUi:
+  enabled: false
+
+khulnasoft-ui-redis:
+  enabled: false
+
+postgresql:
+  resources:
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+khulnasoft-feeds-db:
+  enabled: false
+
+khulnasoftApi:
+  service:
+    type: NodePort
+  resources:
+    limits:
+      cpu: 1
+    requests:
+      cpu: 100m
+
+khulnasoftAnalyzer:
+  resources:
+    limits:
+      cpu: 1
+    requests:
+      cpu: 100m
+
+khulnasoftCatalog:
+  resources:
+    limits:
+      cpu: 4
+    requests:
+      cpu: 100m
+
+khulnasoftPolicyEngine:
+  resources:
+    limits:
+      cpu: 4
+    requests:
+      cpu: 100m
+
+khulnasoftSimpleQueue:
+  resources:
+    limits:
+      cpu: 1
+    requests:
+      cpu: 100m
+
+khulnasoftEnterpriseFeeds:
+  enabled: false
