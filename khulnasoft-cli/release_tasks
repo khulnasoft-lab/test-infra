@@ -1,0 +1,556 @@
+#!/usr/bin/env bash
+
+############################################################
+# Release tasks. These are intended to be reusable across
+# projects, and easily overriden.
+############################################################
+
+push-ci-debug-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${3:?'Missing required parameter: GIT_BRANCH'}"
+    local TEST_IMAGE_NAME="${4:?'Missing required parameter: TEST_IMAGE_NAME'}"
+
+    local dev_image="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+    local datenow="$(date +%s)"
+    local ci_debug_image="${DEV_IMAGE_REPO}:ci-debug-${datenow}"
+    local debug_image="${DEV_IMAGE_REPO}:ci-debug"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required env variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required env variable: DOCKER_PASS'}"
+
+        print_colorized INFO "Preparing image ${dev_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized INFO "Tagging and pushing dev image ${dev_image}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image}"
+        docker push "${dev_image}"
+
+        print_colorized INFO "Tagging and pushing image ${debug_image}."; echo
+        docker tag "${dev_image}" "${debug_image}"
+        docker push "${debug_image}"
+
+        print_colorized INFO "Tagging and pushing image ${ci_debug_image}."; echo
+        docker tag "${dev_image}" "${ci_debug_image}"
+        docker push "${ci_debug_image}"
+
+    else
+        print_colorized ERROR "CI debug images should only be pushed in the CI environment."; echo
+    fi
+
+    print_colorized INFO "Finished tagging and pushing dev image."; echo
+}
+
+push-nightly-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${3:?'Missing required parameter: GIT_BRANCH'}"
+    local TEST_IMAGE_NAME="${4:?'Missing required parameter: TEST_IMAGE_NAME'}"
+
+    local dev_image="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+    local datenow="$(date +%s)"
+    local nightly_cd_image="${DEV_IMAGE_REPO}:nightly-${datenow}"
+    local nightly_image="${DEV_IMAGE_REPO}:nightly"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required env variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required env variable: DOCKER_PASS'}"
+
+        print_colorized INFO "Preparing image ${dev_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized INFO "Tagging and pushing dev image ${dev_image}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image}"
+        docker push "${dev_image}"
+
+        print_colorized INFO "Tagging and pushing image ${nightly_image}."; echo
+        docker tag "${dev_image}" "${nightly_image}"
+        docker push "${nightly_image}"
+
+        print_colorized INFO "Tagging and pushing image ${nightly_cd_image}."; echo
+        docker tag "${dev_image}" "${nightly_cd_image}"
+        docker push "${nightly_cd_image}"
+
+    else
+        print_colorized ERROR "Nightly images should only be pushed in the CI enviornment."; echo
+    fi
+
+    print_colorized INFO "Finished tagging and pushing dev image."; echo
+}
+
+push-dev-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${3:?'Missing required parameter: GIT_BRANCH'}"
+    local TEST_IMAGE_NAME="${4:?'Missing required parameter: TEST_IMAGE_NAME'}"
+
+    local dev_image="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+    local latest_image="${DEV_IMAGE_REPO}:latest"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required env variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required env variable: DOCKER_PASS'}"
+
+        print_colorized INFO "Preparing image ${dev_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized INFO "Tagging and pushing dev image ${dev_image}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image}"
+        docker push "${dev_image}"
+
+        print_colorized INFO "Tagging and pushing image ${latest_image}."; echo
+        docker tag "${dev_image}" "${latest_image}"
+        docker push "${latest_image}"
+
+    else
+        print_colorized INFO "Tagging and pushing image ${dev_image} using local credentials."; echo
+        continue_prompt
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image}"
+        docker push "${dev_image}"
+    fi
+
+    print_colorized INFO "Finished tagging and pushing dev image."; echo
+}
+
+push-scale-testing-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${3:?'Missing required parameter: GIT_BRANCH'}"
+    local TEST_IMAGE_NAME="${4:?'Missing required parameter: TEST_IMAGE_NAME'}"
+
+    local datenow="$(date +%s)"
+    local scale_testing_image_latest="${DEV_IMAGE_REPO}:${GIT_BRANCH}-latest"
+    local scale_testing_image_sha="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+    local scale_testing_image_ts="${DEV_IMAGE_REPO}:${GIT_BRANCH}-${datenow}"
+
+    if [[ ! "${GIT_BRANCH}" =~ ^scale_ ]]; then
+        print_colorized ERROR "Error: Callling push-scale-image from a branch that is not a scale-testing branch (^scale_*)"; echo
+        exit 1
+    fi
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required environment variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required environment variable: DOCKER_PASS'}"
+
+        print_colorized WARN "Preparing image ${TEST_IMAGE_NAME} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Tagging and pushing rolling :${GIT_BRANCH}-latest ${scale_testing_image_latest}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${scale_testing_image_latest}"
+        docker push "${scale_testing_image_latest}"
+
+        print_colorized WARN "Tagging and pushing image ${scale_testing_image_sha}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${scale_testing_image_sha}"
+        docker push "${scale_testing_image_sha}"
+
+        print_colorized INFO "Tagging and pushing image ${scale_testing_image_ts}."
+        docker tag "${TEST_IMAGE_NAME}" "${scale_testing_image_ts}"
+        docker push "${scale_testing_image_ts}"
+    else
+        print_colorized INFO "Tagging and pushing image ${TEST_IMAGE_NAME} using local credentials."; echo
+        continue_prompt
+        docker tag "${TEST_IMAGE_NAME}" "${scale_testing_image_sha}"
+        docker push "${scale_testing_image_sha}"
+    fi
+
+    print_colorized INFO "Finished tagging and pushing scale testing image."; echo
+}
+
+push-dev-nightly-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${3:?'Missing required parameter: GIT_BRANCH'}"
+    local TEST_IMAGE_NAME="${4:?'Missing required parameter: TEST_IMAGE_NAME'}"
+
+    local datenow="$(date +%s)"
+    local dev_image_nightly="${DEV_IMAGE_REPO}:${GIT_BRANCH}-nightly"
+    local dev_image_sha="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+    local dev_image_ts="${DEV_IMAGE_REPO}:${GIT_BRANCH}-${datenow}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required environment variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required environment variable: DOCKER_PASS'}"
+
+        print_colorized WARN "Preparing image ${TEST_IMAGE_NAME} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Tagging and pushing rolling :${GIT_BRANCH}-nightly ${dev_image_nightly}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image_nightly}"
+        docker push "${dev_image_nightly}"
+
+        print_colorized WARN "Tagging and pushing image ${dev_image_sha}."; echo
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image_sha}"
+        docker push "${dev_image_sha}"
+
+        print_colorized INFO "Tagging and pushing image ${dev_image_ts}."
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image_ts}"
+        docker push "${dev_image_ts}"
+    else
+        print_colorized INFO "Tagging and pushing image ${TEST_IMAGE_NAME} using local credentials."; echo
+        continue_prompt
+        docker tag "${TEST_IMAGE_NAME}" "${dev_image_sha}"
+        docker push "${dev_image_sha}"
+    fi
+
+    print_colorized INFO "Finished tagging and pushing dev nightly testing image."; echo
+}
+
+push-rc-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_TAG="${3:?'Missing required parameter: GIT_TAG'}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required environment variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required environment variable: DOCKER_PASS'}"
+
+        # convert DEV_IMAGE_REPO from the DockerHub repo name (khulnasoft/<REPO_NAME>-dev) to the image loaded in circleci (<REPO_NAME>:dev)
+        local dev_image="$(basename ${DEV_IMAGE_REPO%%-dev*}:dev)"
+        local datenow="$(date +%s)"
+        local rc_cd_image="${DEV_IMAGE_REPO}:rc-${datenow}"
+        local rc_image="${DEV_IMAGE_REPO}:${GIT_TAG}"
+        local rc_latest_image="${DEV_IMAGE_REPO}:rc"
+
+        local rc_commit_sha="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+
+        print_colorized WARN "Preparing image ${rc_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Tagging and pushing image ${rc_commit_sha}."; echo
+        docker tag "${dev_image}" "${rc_commit_sha}"
+        docker push "${rc_commit_sha}"
+
+        print_colorized WARN "Tagging and pushing image ${rc_image}."; echo
+        docker tag "${dev_image}" "${rc_image}"
+        docker push "${rc_image}"
+
+        print_colorized WARN "Tagging and pushing image ${rc_cd_image}."; echo
+        docker tag "${dev_image}" "${rc_cd_image}"
+        docker push "${rc_cd_image}"
+
+        print_colorized INFO "Tagging and pushing rolling :rc label ${rc_latest_image}."
+        docker tag "${rc_image}" "${rc_latest_image}"
+        docker push "${rc_latest_image}"
+    else
+        print_colorized ERROR "RC images can only be pushed in the CI enviornment."; echo
+    fi
+}
+
+push-preview-image() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_TAG="${3:?'Missing required parameter: GIT_TAG'}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required environment variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required environment variable: DOCKER_PASS'}"
+
+        # convert DEV_IMAGE_REPO from the DockerHub repo name (khulnasoft/<REPO_NAME>-dev) to the image loaded in circleci (<REPO_NAME>:dev)
+        local dev_image="$(basename ${DEV_IMAGE_REPO%%-dev*}:dev)"
+        local datenow="$(date +%s)"
+        local preview_cd_image="${DEV_IMAGE_REPO}:preview-${datenow}"
+        local preview_image="${DEV_IMAGE_REPO}:${GIT_TAG}"
+        local preview_latest_image="${DEV_IMAGE_REPO}:preview"
+
+        print_colorized WARN "Preparing image ${preview_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Tagging and pushing image ${preview_image}."; echo
+        docker tag "${dev_image}" "${preview_image}"
+        docker push "${preview_image}"
+
+        print_colorized WARN "Tagging and pushing image ${preview_cd_image}."; echo
+        docker tag "${dev_image}" "${preview_cd_image}"
+        docker push "${preview_cd_image}"
+
+        print_colorized INFO "Tagging and pushing rolling :preview label ${preview_latest_image}."
+        docker tag "${preview_image}" "${preview_latest_image}"
+        docker push "${preview_latest_image}"
+    else
+        print_colorized ERROR "Preview images can only be pushed in the CI enviornment."; echo
+    fi
+}
+push-prod-image-release() {
+    local DEV_IMAGE_REPO="${1:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_BRANCH="${2:-'Missing required parameter: GIT_BRANCH'}"
+    local GIT_TAG="${3:?'Missing required parameter: GIT_TAG'}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required environment variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required environment variable: DOCKER_PASS'}"
+        test "${LATEST_RELEASE_MAJOR_VERSION:?'Missing required environment variable: LATEST_RELEASE_MAJOR_VERSION'}"
+        test "${PROD_IMAGE_REPO:?'Missing required environment variable: PROD_IMAGE_REPO'}"
+
+        local latest_tag_regex="^v${LATEST_RELEASE_MAJOR_VERSION}\.[0-9]+\$"
+
+        local rolling_major_prod_image="${PROD_IMAGE_REPO}:${GIT_TAG%%.*}" # eg. khulnasoft/enterprise:v4
+        local rolling_minor_prod_image="${PROD_IMAGE_REPO}:${GIT_TAG%.*}" # eg. khulnasoft/enterprise:v4.1
+        local prod_image="${PROD_IMAGE_REPO}:${GIT_TAG}" # eg. khulnasoft/enterprise:v4.1.0
+
+        local rc_image="${DEV_IMAGE_REPO}:$(git describe --match "${GIT_TAG}-rc*" --tags --abbrev=0)"
+
+        print_colorized WARN "Preparing image ${prod_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Pulling RC image ${rc_image} for release."; echo
+        docker pull "${rc_image}"
+
+        print_colorized WARN "Tagging and pushing production image ${rolling_major_prod_image}."; echo
+        docker tag "${rc_image}" "${rolling_major_prod_image}"
+        docker push "${rolling_major_prod_image}"
+
+        print_colorized WARN "Tagging and pushing production image ${rolling_minor_prod_image}."; echo
+        docker tag "${rc_image}" "${rolling_minor_prod_image}"
+        docker push "${rolling_minor_prod_image}"
+
+        print_colorized WARN "Tagging and pushing production image ${prod_image}."; echo
+        docker tag "${rc_image}" "${prod_image}"
+        docker push "${prod_image}"
+
+        # if [[ "${GIT_TAG}" =~ ${latest_tag_regex} ]]; then
+        #     local latest_image="${PROD_IMAGE_REPO}:latest"
+        #     print_colorized WARN "Tagging and pushing production image ${latest_image}."; echo
+        #     docker tag "${prod_image}" "${latest_image}"
+        #     docker push "${latest_image}"
+        # fi
+    else
+        print_colorized ERROR "Production images can only be pushed in the CI environment."; echo
+    fi
+}
+
+push-prod-image-rebuild() {
+    local COMMIT_SHA="${1:?'Missing required parameter: COMMIT_SHA'}"
+    local DEV_IMAGE_REPO="${2:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local GIT_TAG="${3:?'Missing required parameter: GIT_TAG'}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required env variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required env variable: DOCKER_PASS'}"
+        test "${PROD_IMAGE_REPO:?'Missing required environment variable: PROD_IMAGE_REPO'}"
+
+        local dev_image="${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+        local rebuild_image="${PROD_IMAGE_REPO}:${GIT_TAG}"
+
+        print_colorized WARN "Preparing image ${rebuild_image} for push to DockerHub."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+        print_colorized WARN "Pulling dev image for release candidate ${dev_image}."; echo
+        docker pull "${dev_image}"
+
+        print_colorized WARN "Tagging and pushing image ${rebuild_image}."; echo
+        docker tag "${dev_image}" "${rebuild_image}"
+        docker push "${rebuild_image}"
+    else
+        print_colorized ERROR "Production images can only be pushed in the CI environment."; echo
+    fi
+}
+
+push-redhat-image() {
+    local GIT_TAG="${1:?'Missing required parameter: GIT_TAG'}"
+    local REDHAT_RELEASE="${2:-r0}"
+
+    # Test for required environment variables exported by CI system
+    if [[ "${CI:-false}" == true ]]; then
+        test "${DOCKER_USER:?'Missing required env variable: DOCKER_USER'}"
+        test "${DOCKER_PASS:?'Missing required env variable: DOCKER_PASS'}"
+        test "${PROD_IMAGE_REPO:?'Missing required environment variable: PROD_IMAGE_REPO'}"
+        test "${REDHAT_REGISTRY:?'Missing required environment variable: REDHAT_REGISTRY'}"
+        test "${REDHAT_PASS:?'Missing required environment variable: REDHAT_PASS'}"
+
+        local prod_image="${PROD_IMAGE_REPO}:${GIT_TAG}"
+        local redhat_image="${REDHAT_REGISTRY}:${GIT_TAG}-${REDHAT_RELEASE}"
+
+        print_colorized WARN "Pulling production image for RedHat release ${prod_image}."; echo
+        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+        docker pull "${prod_image}"
+
+        print_colorized WARN "Tagging and pushing production image to RedHat Connect."; echo
+        docker logout
+        echo "${REDHAT_PASS}" | docker login -u unused --password-stdin scan.connect.redhat.com
+
+        print_colorized WARN "Tagging and pushing RedHat image ${redhat_image}."; echo
+        docker tag "${prod_image}" "${redhat_image}"
+        docker push "${redhat_image}"
+
+    else
+        print_colorized ERROR "RedHat images can only be pushed in the CI environment."; echo
+    fi
+}
+
+create-ironbank-artifacts() {
+    local PROJECT="${1:?'Missing required parameter: PROJECT'}"
+    local GIT_TAG="${2:?'Missing required parameter: GIT_TAG'}"
+    local GRYPE_DB_BUILDER_TAG="${3:-null}"
+
+    local khulnasoft_cli_commit
+    local build_args
+    local cli_repo="https://github.com/khulnasoft/khulnasoft-cli.git"
+    local dcar_bucket="dcar-khulnasoft-artifacts"
+
+    if [[ "${PROJECT}" =~ (^khulnasoft-engine$|^enterprise$) ]]; then
+        khulnasoft_cli_commit=$(git -c 'versionsort.suffix=-' ls-remote --exit-code --tags --refs --sort="v:refname" "${cli_repo}" 'v*' | tail -n1 | sed 's/.*\///')
+        build_args="--build-arg CLI_COMMIT=${khulnasoft_cli_commit}"
+    else
+        build_args=""
+    fi
+
+    if [[ ! -d ./grype-db-builder ]] && [[ "${PROJECT}" == "enterprise" ]]; then
+        test "${GITHUB_RELEASE_PULL_TOKEN:?'Missing required environment variable: GITHUB_RELEASE_PULL_TOKEN'}"
+        case $(uname -m) in
+            "x86_64")
+                local arch="amd64"
+                ;;
+            "arm64")
+                local arch="arm64"
+                ;;
+        esac
+        mkdir -p grype-db-builder
+        pushd grype-db-builder || exit
+        curl -sSfL -H "Authorization: token ${GITHUB_RELEASE_PULL_TOKEN}" -o install.sh https://raw.githubusercontent.com/khulnasoft/grype-db-builder/main/install.sh
+        chmod +x install.sh
+        GITHUB_TOKEN=${GITHUB_RELEASE_PULL_TOKEN} ./install.sh -b . -o "linux" -a "${arch}" "${GRYPE_DB_BUILDER_TAG}"
+        popd || exit
+    fi
+
+    docker build --no-cache --target "${PROJECT}"-builder ${build_args} -t "${PROJECT}":builder -f ./Dockerfile .
+
+    # copy build blob & shasum from running docker image
+    docker create --name "${PROJECT}"-builder "${PROJECT}":builder
+    docker cp "${PROJECT}"-builder:/khulnasoft-buildblob.tgz "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz
+    docker cp "${PROJECT}"-builder:/buildblob.tgz.sha256sum "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz.sha256sum
+    docker rm  "${PROJECT}"-builder
+
+    # replace filename in shasum with versioned filename (sha doesn't change because tarball is the same)
+    sed -i "s|/khulnasoft-buildblob.tgz|${PROJECT}-${GIT_TAG}-buildblob.tgz|" "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz.sha256sum
+    print_colorized INFO "${PROJECT}-${GIT_TAG}-buildblob.tgz checksum: "
+    cat "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz.sha256sum
+
+    which aws || python -m pip install awscli --upgrade
+    aws s3 cp "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz s3://"${dcar_bucket}"/"${PROJECT}"-"${GIT_TAG}"-buildblob.tgz
+    aws s3 cp "${PROJECT}"-"${GIT_TAG}"-buildblob.tgz.sha256sum s3://"${dcar_bucket}"/"${PROJECT}"-"${GIT_TAG}"-buildblob.tgz.sha256sum
+}
+
+khulnasoft-add-image() {
+    local DEV_IMAGE_REPO="${1:?'Missing required parameter: DEV_IMAGE_REPO'}"
+    local COMMIT_SHA="${2:?'Missing required parameter: COMMIT_SHA'}"
+    local KHULNASOFT_URL="${3:?'Missing required parameter: KHULNASOFT_URL'}"
+
+    test "${KHULNASOFT_USERNAME:?'Missing required env variable: KHULNASOFT_USERNAME'}"
+    test "${KHULNASOFT_PASSWORD:?'Missing required env variable: KHULNASOFT_PASSWORD'}"
+
+    print_colorized INFO "Downloading Khulnasoftctl"; echo
+    curl -sSfL  https://khulnasoftctl-releases.khulnasoft.io/khulnasoftctl/install.sh  | sh -s -- -b .
+
+    print_colorized INFO "Submitting image to Khulnasoft for scanning."; echo
+
+    KHULNASOFTCTL_HTTP_HEADERS="CF-Access-Client-Id=${CLOUDFLARE_ACCESS_CLIENT_ID}, CF-Access-Client-Secret=${CLOUDFLARE_ACCESS_CLIENT_SECRET}" \
+    KHULNASOFTCTL_URL="${KHULNASOFT_URL}" \
+    KHULNASOFTCTL_USERNAME="${KHULNASOFT_USERNAME}" \
+    KHULNASOFTCTL_PASSWORD="${KHULNASOFT_PASSWORD}" \
+    ./khulnasoftctl image add "${DEV_IMAGE_REPO}:${COMMIT_SHA}"
+}
+
+khulnasoft-check-image-by-id() {
+    local IMAGE_ID="${1:?'Missing required parameter: IMAGE_ID'}"
+    local KHULNASOFT_URL="${2:?'Missing required parameter: KHULNASOFT_URL'}"
+    local API_ENDPOINT_SUFFIX="${3}"
+    local API_ENDPOINT="v1/images/by_id/${IMAGE_ID}/${API_ENDPOINT_SUFFIX}"
+
+    # Test for required environment variables, will be exported by CI system or must be locally exported
+    test "${KHULNASOFT_USERNAME:?'Missing required env variable: KHULNASOFT_USERNAME'}"
+    test "${KHULNASOFT_PASSWORD:?'Missing required env variable: KHULNASOFT_PASSWORD'}"
+
+    declare -a HEADERS=('-H' "Content-Type: application/json")
+
+    # If Khulnasoft is behind cloudflare, we need additional headers to get to the service
+    if [[ ! -z "${CLOUDFLARE_ACCESS_CLIENT_ID}" && ! -z "${CLOUDFLARE_ACCESS_CLIENT_SECRET}" ]]; then
+        HEADERS+=("-H")
+        HEADERS+=("CF-Access-Client-Id: ${CLOUDFLARE_ACCESS_CLIENT_ID}")
+        HEADERS+=("-H")
+        HEADERS+=("CF-Access-Client-Secret: ${CLOUDFLARE_ACCESS_CLIENT_SECRET}")
+    fi
+
+    print_colorized INFO "Checking ${API_ENDPOINT} in Khulnasoft."; echo
+    curl -s -u "${KHULNASOFT_USERNAME}:${KHULNASOFT_PASSWORD}" "${HEADERS[@]}" "${KHULNASOFT_URL}/${API_ENDPOINT}"
+}
+
+git-create-tag() {
+    local GIT_TAG_SOURCE="${1:?'Missing required parameter: GIT_TAG_SOURCE'}"
+    local GIT_TAG_DESTINATION="${2:?'Missing required parameter: GIT_TAG_DESTINATION'}"
+
+    local VERSION="${GIT_TAG_DESTINATION##*v}"
+    local MAJOR_MINOR="${VERSION%.*}"
+    local MAJOR="${MAJOR_MINOR%%.*}"
+    local MINOR="${MAJOR_MINOR##*.}"
+    local PATCH="${VERSION##*.}"
+
+    test "${GITHUB_CI_GPG_KEY:?'Missing required env variable: GITHUB_CI_GPG_KEY'}"
+    test "${GITHUB_CI_GIT_TOKEN:?'Missing required env variable: GITHUB_CI_GIT_TOKEN'}"
+    test "${GITHUB_CI_GIT_EMAIL:?'Missing required env variable: GITHUB_CI_GIT_EMAIL'}"
+    test "${GITHUB_CI_GIT_NAME:?'Missing required env variable: GITHUB_CI_GIT_NAME'}"
+    test "${GITHUB_CI_GIT_USERNAME:?'Missing required env variable: GITHUB_CI_GIT_USERNAME'}"
+    test "${CIRCLE_PROJECT_REPONAME:?'Missing required env variable: CIRCLE_PROJECT_REPONAME'}"
+
+    print_colorized INFO "Using ${GIT_TAG_SOURCE} to create ${GIT_TAG_DESTINATION} tag"; echo
+
+    git pull
+    git checkout ${GIT_TAG_SOURCE}
+
+    echo "${GIT_TAG_DESTINATION}" > git-tag-message.txt
+
+    if [[ ${GIT_TAG_DESTINATION} =~ -rc[0-9]+$ ]]; then
+        echo "Cutting a new RC. Commit history not needed"
+        echo "tag cut by ci from ${GIT_TAG_SOURCE} to ${GIT_TAG_DESTINATION}" >> git-tag-message.txt
+    else
+        # actual release tag
+        # check if GIT_TAG_SOURCE and last RC is on the same commit sha
+        # also we don't want to create a release unless there was atleast 1 RC for that version
+        local FINAL_RC=$(git tag --sort="v:refname" | tail -n 50 | grep 'rc' | grep '^v'"${VERSION}-rc" | tail -1 || echo '')
+
+        if [ -z "${FINAL_RC}" ]; then
+            echo 'No RCs Found'
+            exit 1
+        fi
+
+        local SOURCE_COMMIT_SHA="$(git rev-list ${GIT_TAG_SOURCE} --max-count=1)"
+        local LAST_RC_COMMIT_SHA="$(git rev-list ${FINAL_RC} --max-count=1)"
+
+        if [ "${SOURCE_COMMIT_SHA}" != "${LAST_RC_COMMIT_SHA}" ]; then
+            echo "commits dont match for ${GIT_TAG_SOURCE} and ${FINAL_RC}"
+            echo "${SOURCE_COMMIT_SHA} and ${LAST_RC_COMMIT_SHA} respectively"
+            exit 1
+        fi;
+
+        echo "getting commit history"
+        if [ "${PATCH}" -gt 0 ]; then
+            # get commit history since previous major.minor.patch version
+            echo "only getting commit history since last patch release"
+            # dont confuse v4.2 and v14.2 that would happen if we just grep ${MAJOR_MINOR}
+            local PREVIOUS_RELEASE_GIT_TAG=$(git tag --sort="v:refname" | tail -n 50 | grep -v 'rc' | grep 'v'"${MAJOR_MINOR}"'\.' | tail -1)
+        else
+            # get commit history since previous major.minor version
+            local PREVIOUS_RELEASE_GIT_TAG=$(git tag --sort="v:refname" | tail -n 50 | grep -v 'rc' | tail -1)
+        fi
+        echo "Using commit history since ${PREVIOUS_RELEASE_GIT_TAG}"
+        # in the case of a release, the GIT_TAG_SOURCE is our final rc, so we want commits from last release to this rc
+        git log --oneline --decorate ${PREVIOUS_RELEASE_GIT_TAG}..${GIT_TAG_SOURCE} >> git-tag-message.txt
+    fi
+
+    echo "${GITHUB_CI_GPG_KEY}" | base64 -d > ./gpgkey
+    gpg --import ./gpgkey
+    git -c user.email="${GITHUB_CI_GIT_EMAIL}" -c user.name="${GITHUB_CI_GIT_NAME}" tag -a -s --file git-tag-message.txt "${GIT_TAG_DESTINATION}"
+    git push https://${GITHUB_CI_GIT_USERNAME}:${GITHUB_CI_GIT_TOKEN}@github.com/khulnasoft/${CIRCLE_PROJECT_REPONAME}.git "${GIT_TAG_DESTINATION}"
+    gpg --with-colons --import-options show-only --import --fingerprint < gpgkey | awk -F: '$1 == "fpr" {print $10;}' | xargs gpg --batch --yes --delete-secret-keys || echo 'deleted'
+    gpg --batch --yes --delete-key ${GITHUB_CI_GIT_NAME} || echo 'deleted'
+    rm -f gpgkey
+}
